@@ -23,12 +23,11 @@ import net.sourceforge.jaad.mp4.api.*;
  */
 public class AACPlayer
 {
-    // final   private Track[] tracks;
-            private boolean loop;
-            private boolean repeat;
-            private Thread  playback;
-            private boolean paused;
-            private File[]  files;
+    private boolean loop;
+    private boolean repeat;
+    private Thread  playback;
+    private boolean paused;
+    private File[]  files;
 
     /**
      * creates a new Instance of AACPlayer with a set of Files to be played back.
