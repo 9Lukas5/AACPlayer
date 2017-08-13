@@ -1,6 +1,6 @@
 /**
  * Copyright (C) 2017 Lukas Wiest
- * v1.0.0
+ * v1.0.1
  */
 package de.wiest_lukas.lib;
 
@@ -238,7 +238,10 @@ public class AACPlayer
      */
     public boolean isPlaying()
     {
-        return playback.isAlive();
+        if (playback != null)
+            return playback.isAlive();
+        else
+            return false;
     }
 
 }
