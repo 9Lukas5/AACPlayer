@@ -1,6 +1,6 @@
 /**
  * Copyright (C) 2017 Lukas Wiest
- * v1.0.1
+ * v1.1.0
  */
 package de.wiest_lukas.lib;
 
@@ -27,6 +27,7 @@ public class AACPlayer
     private boolean repeat;     // controls the looping behaviour of the complete filelist
     private Thread  playback;   // in this thread the actual playback will happen
     private boolean paused;     // get's checked regularly from the playback thread and controls it pause if set true
+    private boolean muted;
     private File[]  files;      // file list that the playback will play down
 
     /**
@@ -39,6 +40,7 @@ public class AACPlayer
         loop        = false;
         repeat      = false;
         paused      = false;
+        muted       = false;
 
         // LinkedList for all given files, which are a valid audiofile
         List<File> validFiles = new LinkedList<>();
@@ -125,7 +127,8 @@ public class AACPlayer
                             frame = track.readNextFrame();          // read next frame,
                             dec.decodeFrame(frame.getData(), buf);  // decode it and put into the buffer
                             b = buf.getData();                      // write the frame data from the buffer to our byte-array
-                            line.write(b, 0, b.length);             // and from there write the byte array into our open AudioSystem DataLine
+                            if (!muted)                             // only write the sound to the line if we aren't muted
+                                line.write(b, 0, b.length);         // and from there write the byte array into our open AudioSystem DataLine
 
                             while (paused)                  // check if we should pause
                             {
@@ -204,6 +207,18 @@ public class AACPlayer
     }
 
     /**
+     * mutes playback (in background the file is still processed, but the audio data not given
+     * to the AudioSystem.
+     * 
+     * @return true if player is muted after call
+     */
+    public boolean toggleMute()
+    {
+        this.muted = !this.muted;
+        return this.isMuted();
+    }
+
+    /**
      * Enales loop of current file.
      */
     public void enableLoop()
@@ -245,6 +260,15 @@ public class AACPlayer
             return playback.isAlive();
         else
             return false;
+    }
+
+    /**
+     * Returns the mute state
+     * @return true if player is muted right now
+     */
+    public boolean isMuted()
+    {
+        return this.muted;
     }
 
 }
