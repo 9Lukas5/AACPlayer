@@ -144,6 +144,7 @@ public class AACPlayer
                             }
                         }
 
+                        line.drain();
                         line.close();           // after titel is over or playback loop got broken, close line
 
                         if (interrupted)
