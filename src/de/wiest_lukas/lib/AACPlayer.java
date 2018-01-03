@@ -1,6 +1,6 @@
 /**
  * Copyright (C) 2017 Lukas Wiest
- * v1.1.0
+ * v1.2.0
  */
 package de.wiest_lukas.lib;
 
@@ -27,7 +27,8 @@ public class AACPlayer
     private boolean repeat;     // controls the looping behaviour of the complete filelist
     private Thread  playback;   // in this thread the actual playback will happen
     private boolean paused;     // get's checked regularly from the playback thread and controls it pause if set true
-    private boolean muted;
+    private boolean muted;      // if set, the playback goes on, but doesn't write the read bytes to the AudioSystem
+    private boolean interrupted;// needed for Windows, as of broken SourceDataLine interrupt clearing on write method
     private File[]  files;      // file list that the playback will play down
 
     /**
@@ -41,6 +42,7 @@ public class AACPlayer
         repeat      = false;
         paused      = false;
         muted       = false;
+        interrupted = false;
 
         // LinkedList for all given files, which are a valid audiofile
         List<File> validFiles = new LinkedList<>();
@@ -89,6 +91,7 @@ public class AACPlayer
 
     private void initThread()
     {
+        interrupted = false;    // needs to be reset, if the Thread is recreated, too.
         playback = new Thread()
         {
             @Override
@@ -122,33 +125,35 @@ public class AACPlayer
                         dec     = new Decoder(track.getDecoderSpecificInfo());
 
                         buf = new SampleBuffer();
-                        while(track.hasMoreFrames())                // while we have frames left
+
+                        playback:
+                        while(!isInterrupted() && track.hasMoreFrames())    // while we have frames left
                         {
-                            frame = track.readNextFrame();          // read next frame,
-                            dec.decodeFrame(frame.getData(), buf);  // decode it and put into the buffer
-                            b = buf.getData();                      // write the frame data from the buffer to our byte-array
-                            if (!muted)                             // only write the sound to the line if we aren't muted
-                                line.write(b, 0, b.length);         // and from there write the byte array into our open AudioSystem DataLine
+                            frame = track.readNextFrame();                  // read next frame,
+                            dec.decodeFrame(frame.getData(), buf);          // decode it and put into the buffer
+                            b = buf.getData();                              // write the frame data from the buffer to our byte-array
+                            if (!muted)                                     // only write the sound to the line if we aren't muted
+                                line.write(b, 0, b.length);                 // and from there write the byte array into our open AudioSystem DataLine
 
-                            while (paused)                  // check if we should pause
+                            if (interrupted && !isInterrupted())            // check for interrupt clearing source Data Line system
                             {
-                                Thread.sleep(500);          // if yes, stay half a second
-
-                                if (Thread.interrupted())   // check if we should stop possibly
-                                {
-                                    line.close();           // if yes, close line and
-                                    return;                 // exit thread
-                                }
+                                System.err.println("[LOG] - E - Source Data Line on your system clears interrupted flag!");
+                                interrupt();                                // and correct it if necessary
                             }
 
-                            if (Thread.interrupted())       // if not in pause, still check on each frame if we should
-                            {                               // stop. If so
-                                line.close();               // close line and
-                                return;                     // exit thread
+                            while (paused)                                  // check if we should pause
+                            {
+                                Thread.sleep(500);                          // if yes, stay half a second
+
+                                if (isInterrupted())                        // check if we should stop possibly
+                                    break playback;                         // if yes, break playback loop
                             }
                         }
 
-                        line.close();           // after titel is over, close line
+                        line.close();           // after titel is over or playback loop got broken, close line
+
+                        if (Thread.interrupted())
+                            return;             // if interrupt is set, clear it and leave
 
                         if (loop)               // if we should loop current titel, set currentTrack -1,
                             currentTrack--;     // as on bottom of for-next it get's +1 and so the same titel get's played again
@@ -185,7 +190,9 @@ public class AACPlayer
      */
     public void stop()
     {
-        playback.interrupt();   // tell playback to stop
+        if (playback != null)       // avoid null Pointer exception, if someone stops before playing
+            playback.interrupt();   // tell playback to stop
+        interrupted = true;         // set own interrupted flag
     }
 
     /**
