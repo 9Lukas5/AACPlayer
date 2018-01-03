@@ -127,7 +127,7 @@ public class AACPlayer
                         buf = new SampleBuffer();
 
                         playback:
-                        while(!isInterrupted() && track.hasMoreFrames())    // while we have frames left
+                        while(!interrupted && track.hasMoreFrames())        // while we have frames left
                         {
                             frame = track.readNextFrame();                  // read next frame,
                             dec.decodeFrame(frame.getData(), buf);          // decode it and put into the buffer
@@ -135,25 +135,22 @@ public class AACPlayer
                             if (!muted)                                     // only write the sound to the line if we aren't muted
                                 line.write(b, 0, b.length);                 // and from there write the byte array into our open AudioSystem DataLine
 
-                            if (interrupted && !isInterrupted())            // check for interrupt clearing source Data Line system
-                            {
-                                System.err.println("[LOG] - E - Source Data Line on your system clears interrupted flag!");
-                                interrupt();                                // and correct it if necessary
-                            }
-
                             while (paused)                                  // check if we should pause
                             {
                                 Thread.sleep(500);                          // if yes, stay half a second
 
-                                if (isInterrupted())                        // check if we should stop possibly
+                                if (interrupted)                            // check if we should stop possibly
                                     break playback;                         // if yes, break playback loop
                             }
                         }
 
                         line.close();           // after titel is over or playback loop got broken, close line
 
-                        if (Thread.interrupted())
+                        if (interrupted)
+                        {
+                            interrupt();
                             return;             // if interrupt is set, clear it and leave
+                        }
 
                         if (loop)               // if we should loop current titel, set currentTrack -1,
                             currentTrack--;     // as on bottom of for-next it get's +1 and so the same titel get's played again
@@ -190,8 +187,6 @@ public class AACPlayer
      */
     public void stop()
     {
-        if (playback != null)       // avoid null Pointer exception, if someone stops before playing
-            playback.interrupt();   // tell playback to stop
         interrupted = true;         // set own interrupted flag
     }
 
@@ -226,7 +221,7 @@ public class AACPlayer
     }
 
     /**
-     * Enales loop of current file.
+     * Enables loop of current file.
      */
     public void enableLoop()
     {
