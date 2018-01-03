@@ -1,6 +1,6 @@
 /**
  * Copyright (C) 2017 Lukas Wiest
- * v1.2.0
+ * v1.2.1
  */
 package de.wiest_lukas.lib;
 
@@ -92,81 +92,75 @@ public class AACPlayer
     private void initThread()
     {
         interrupted = false;    // needs to be reset, if the Thread is recreated, too.
-        playback = new Thread()
+        playback = new Thread(() ->
         {
-            @Override
-            public void run()
+            // local vars
+            byte[]          b;              // array for the actual audio Data during the playback
+            AudioTrack      track;          // track we are playing atm
+            AudioFormat     af;             // the track's format
+            SourceDataLine  line;           // the line we'll use the get our audio to the speaker's
+            Decoder         dec;            // decoder to get the audio bytes
+            Frame           frame;          //
+            SampleBuffer    buf;            //
+            int             currentTrack;   // index of current track from playlist
+            MP4Container    cont;           // container to open the current track with
+            Movie           movie;          // and get the content from the container
+
+            try
             {
-                // local vars
-                byte[]          b;              // array for the actual audio Data during the playback
-                AudioTrack      track;          // track we are playing atm
-                AudioFormat     af;             // the track's format
-                SourceDataLine  line;           // the line we'll use the get our audio to the speaker's
-                Decoder         dec;            // decoder to get the audio bytes
-                Frame           frame;          //
-                SampleBuffer    buf;            //
-                int             currentTrack;   // index of current track from playlist
-                MP4Container    cont;           // container to open the current track with
-                Movie           movie;          // and get the content from the container
-
-                try
+                // for-next loop to play each titel from the playlist once
+                for (currentTrack = 0; currentTrack < files.length; currentTrack++)
                 {
-                    // for-next loop to play each titel from the playlist once
-                    for (currentTrack = 0; currentTrack < files.length; currentTrack++)
+                    cont    = new MP4Container(new RandomAccessFile(files[currentTrack], "r")); // open titel with random access
+                    movie   = cont.getMovie();                          // get content from container,
+                    track   = (AudioTrack) movie.getTracks().get(0);    // grab first track and set the audioformat
+                    af      = new AudioFormat(track.getSampleRate(), track.getSampleSize(), track.getChannelCount(), true, true);
+                    line    = AudioSystem.getSourceDataLine(af);        // get a DataLine from the AudioSystem
+                    line.open();                                        // open and
+                    line.start();                                       // start it
+
+                    dec     = new Decoder(track.getDecoderSpecificInfo());
+
+                    buf = new SampleBuffer();
+
+                    playback:
+                    while(!interrupted && track.hasMoreFrames())        // while we have frames left
                     {
-                        cont    = new MP4Container(new RandomAccessFile(files[currentTrack], "r")); // open titel with random access
-                        movie   = cont.getMovie();                          // get content from container,
-                        track   = (AudioTrack) movie.getTracks().get(0);    // grab first track and set the audioformat
-                        af      = new AudioFormat(track.getSampleRate(), track.getSampleSize(), track.getChannelCount(), true, true);
-                        line    = AudioSystem.getSourceDataLine(af);        // get a DataLine from the AudioSystem
-                        line.open();                                        // open and
-                        line.start();                                       // start it
+                        frame = track.readNextFrame();                  // read next frame,
+                        dec.decodeFrame(frame.getData(), buf);          // decode it and put into the buffer
+                        b = buf.getData();                              // write the frame data from the buffer to our byte-array
+                        if (!muted)                                     // only write the sound to the line if we aren't muted
+                            line.write(b, 0, b.length);                 // and from there write the byte array into our open AudioSystem DataLine
 
-                        dec     = new Decoder(track.getDecoderSpecificInfo());
-
-                        buf = new SampleBuffer();
-
-                        playback:
-                        while(!isInterrupted() && track.hasMoreFrames())    // while we have frames left
+                        while (paused)                                  // check if we should pause
                         {
-                            frame = track.readNextFrame();                  // read next frame,
-                            dec.decodeFrame(frame.getData(), buf);          // decode it and put into the buffer
-                            b = buf.getData();                              // write the frame data from the buffer to our byte-array
-                            if (!muted)                                     // only write the sound to the line if we aren't muted
-                                line.write(b, 0, b.length);                 // and from there write the byte array into our open AudioSystem DataLine
+                            Thread.sleep(500);                          // if yes, stay half a second
 
-                            if (interrupted && !isInterrupted())            // check for interrupt clearing source Data Line system
-                            {
-                                System.err.println("[LOG] - E - Source Data Line on your system clears interrupted flag!");
-                                interrupt();                                // and correct it if necessary
-                            }
-
-                            while (paused)                                  // check if we should pause
-                            {
-                                Thread.sleep(500);                          // if yes, stay half a second
-
-                                if (isInterrupted())                        // check if we should stop possibly
-                                    break playback;                         // if yes, break playback loop
-                            }
+                            if (interrupted)                            // check if we should stop possibly
+                                break playback;                         // if yes, break playback loop
                         }
-
-                        line.close();           // after titel is over or playback loop got broken, close line
-
-                        if (Thread.interrupted())
-                            return;             // if interrupt is set, clear it and leave
-
-                        if (loop)               // if we should loop current titel, set currentTrack -1,
-                            currentTrack--;     // as on bottom of for-next it get's +1 and so the same titel get's played again
-                        else if (repeat && (currentTrack == files.length -1)) // else check if we are at the end of the playlist
-                            currentTrack = -1;  // and should repeat the whole list. If so, set currentTrack -1, so it get's 0 on for-next bottom
                     }
-                }
-                catch (LineUnavailableException | IOException | InterruptedException e)
-                {
-                    e.printStackTrace();
+
+                    line.drain();           // make sure the sound written to the buffer get's played back
+                    line.close();           // after titel is over or playback loop got broken, close line
+
+                    if (interrupted)
+                    {
+                        Thread.currentThread().interrupt();
+                        return;             // if interrupt is set, clear it and leave
+                    }
+
+                    if (loop)               // if we should loop current titel, set currentTrack -1,
+                        currentTrack--;     // as on bottom of for-next it get's +1 and so the same titel get's played again
+                    else if (repeat && (currentTrack == files.length -1)) // else check if we are at the end of the playlist
+                        currentTrack = -1;  // and should repeat the whole list. If so, set currentTrack -1, so it get's 0 on for-next bottom
                 }
             }
-        };
+            catch (LineUnavailableException | IOException | InterruptedException e)
+            {
+                e.printStackTrace();
+            }
+        });
     }
 
     /**
@@ -190,8 +184,6 @@ public class AACPlayer
      */
     public void stop()
     {
-        if (playback != null)       // avoid null Pointer exception, if someone stops before playing
-            playback.interrupt();   // tell playback to stop
         interrupted = true;         // set own interrupted flag
     }
 
@@ -226,7 +218,7 @@ public class AACPlayer
     }
 
     /**
-     * Enales loop of current file.
+     * Enables loop of current file.
      */
     public void enableLoop()
     {
